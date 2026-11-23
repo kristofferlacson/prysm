@@ -19,7 +19,7 @@ import {
   Ungroup,
   Unlink2,
 } from 'lucide-react';
-import { canGroup, canUngroup, useEditorStore, useSelectedLayers } from '../../stores/editorStore';
+import { canClip, canGroup, canUngroup, useEditorStore, useSelectedLayers } from '../../stores/editorStore';
 import { BLEND_MODES, type BlendMode, type Layer, type LayerPatch, type Shadow } from '../../types/document';
 import { round } from '../../utils/geometry';
 import { ColorInput, IconButton, NumberInput, Row, Section, Select, SliderRow, Switch } from '../ui/controls';
@@ -45,7 +45,7 @@ function ArrangeSection({ count }: { count: number }) {
   const ungroupable = useEditorStore((s) => canUngroup(s.doc, s.selectedIds));
   return (
     <Section title="Arrange">
-      <div className="flex flex-wrap items-center gap-0.5">
+      <div className="flex items-center justify-between">
         <IconButton label={count > 1 ? 'Align left edges' : 'Align to canvas left'} onClick={() => editor.alignSelected('left')}>
           <AlignStartVertical size={15} />
         </IconButton>
@@ -71,7 +71,7 @@ function ArrangeSection({ count }: { count: number }) {
           <AlignVerticalSpaceAround size={15} />
         </IconButton>
       </div>
-      <div className="flex flex-wrap items-center gap-0.5">
+      <div className="flex items-center justify-between">
         <IconButton label="Bring to front" onClick={() => editor.reorderSelected('front')}>
           <ArrowUpToLine size={15} />
         </IconButton>
@@ -164,6 +164,7 @@ function TransformSection({ layer, update }: { layer: Layer; update: Update }) {
 }
 
 function AppearanceSection({ layer, update }: { layer: Layer; update: Update }) {
+  const clippable = useEditorStore((s) => canClip(s.doc, s.selectedIds));
   return (
     <Section title="Blending">
       <SliderRow
@@ -181,6 +182,16 @@ function AppearanceSection({ layer, update }: { layer: Layer; update: Update }) 
           options={BLEND_OPTIONS}
           onChange={(blendMode) => update({ blendMode })}
         />
+      </Row>
+      <Row label="Clip">
+        <Switch
+          label="Clip to layer below"
+          checked={layer.clip}
+          onChange={() => (clippable || layer.clip) && useEditorStore.getState().toggleClipSelected()}
+        />
+        <span className="text-faint">
+          {layer.clip ? 'Shown only inside the layer below' : clippable ? 'Show only inside the layer below' : 'Needs a layer underneath'}
+        </span>
       </Row>
     </Section>
   );
@@ -225,7 +236,7 @@ export function PropertiesPanel() {
 
   return (
     <div data-testid="properties-panel">
-      <div className="flex h-9 items-center justify-between border-b border-line px-3">
+      <div className="flex h-11 items-center justify-between border-b border-line px-4 text-[13px]">
         <span className="truncate font-semibold">{single ? single.name : `${selected.length} layers selected`}</span>
         {single && <span className="ml-2 shrink-0 text-faint">{TYPE_LABEL[single.type]}</span>}
       </div>

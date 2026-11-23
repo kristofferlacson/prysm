@@ -1,5 +1,9 @@
 import { createGeneratedImage, createImage, createShape, createText, type TextPreset } from '../document/factory';
 import { getGenerator } from '../generators/render';
+import { insertSavedDesign } from '../../services/designLibrary';
+import { getGraphic } from './graphics';
+import { defaultIconStroke, getIcon } from './icons';
+import { iconAssetId, recordUse } from './usage';
 import { importImageFile, type AssetMeta } from '../../services/assets';
 import { useEditorStore } from '../../stores/editorStore';
 import type { Layer, ShapeKind, ShapeLayer, TextLayer } from '../../types/document';
@@ -10,7 +14,10 @@ export type LibraryItem =
   | { kind: 'shape'; shape: ShapeKind; overrides?: Partial<ShapeLayer> }
   | { kind: 'text'; preset: TextPreset; overrides?: Partial<TextLayer> }
   | { kind: 'asset'; asset: Pick<AssetMeta, 'id' | 'name' | 'width' | 'height'> }
-  | { kind: 'generator'; id: string };
+  | { kind: 'generator'; id: string }
+  | { kind: 'icon'; name: string }
+  | { kind: 'graphic'; id: string }
+  | { kind: 'saved'; id: string };
 
 export const LIBRARY_MIME = 'application/x-prysm-item';
 
@@ -35,12 +42,37 @@ export function insertLibraryItem(item: LibraryItem, at?: Point) {
       ]);
       break;
     }
+    case 'icon': {
+      const icon = getIcon(item.name);
+      if (!icon) return;
+      const size = Math.round(Math.min(W, H) * 0.18);
+      const base = createShape('icon', W, H, { name: icon.label, icon: icon.name, fill: null, stroke: { color: '#1d1e22', width: defaultIconStroke(size) } });
+      addLayers([centerOn({ ...base, width: size, height: size }, at ?? { x: W / 2, y: H / 2 })]);
+      recordUse(iconAssetId(icon.name));
+      break;
+    }
+    case 'graphic': {
+      const def = getGraphic(item.id);
+      if (!def) return;
+      // Frames start large enough to hold a picture; everything else starts as an accent.
+      const long = Math.min(W, H) * (def.category === 'Frames' ? 0.7 : 0.34);
+      const width = Math.round(def.aspect >= 1 ? long : long * def.aspect);
+      const height = Math.round(def.aspect >= 1 ? long / def.aspect : long);
+      const base = createShape('graphic', W, H, { name: def.name, graphic: def.id, colors: [...def.colors], fill: null, stroke: null });
+      addLayers([centerOn({ ...base, width, height }, at ?? { x: W / 2, y: H / 2 })]);
+      recordUse(def.id);
+      break;
+    }
+    case 'saved':
+      insertSavedDesign(item.id, at);
+      break;
     case 'generator': {
       const def = getGenerator(item.id);
       if (!def) return;
       const layer = createGeneratedImage(def.id, def.name, def.colors, W, H, def.blend, def.opacity);
       // Backgrounds go underneath everything; textures and overlays sit on top of the current design.
       addLayers([layer], { atBottom: def.kind === 'background' });
+      recordUse(def.id);
       break;
     }
   }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useEditorStore } from '../../../stores/editorStore';
 import type { Fill } from '../../../types/document';
 import { fillToCss } from '../../../utils/misc';
+import { FillEditor } from '../../properties/FillEditor';
 import { GeneratorGrid } from './GeneratorPanel';
 import { Heading, PanelShell } from './shared';
 
@@ -46,6 +47,17 @@ export function BackgroundsPanel() {
     <PanelShell title="Backgrounds" query={query} onQuery={setQuery} placeholder="Search backgrounds">
       {!q && (
         <>
+          <Heading>Any colour or gradient</Heading>
+          <div data-testid="background-custom" className="px-3">
+            <FillEditor
+              name="Background"
+              fill={current}
+              allowNone
+              noneLabel="Clear"
+              onChange={(fill) => useEditorStore.getState().setDocument({ background: fill }, { coalesce: 'canvas-background' })}
+            />
+            <p className="pt-2 text-faint">Click the colour square for the full picker: every shade, a palette, your recent colours and an eyedropper.</p>
+          </div>
           <Heading>Solid colours</Heading>
           <div className="grid grid-cols-8 gap-1.5 px-3">
             <button
@@ -87,11 +99,6 @@ export function BackgroundsPanel() {
               />
             ))}
           </div>
-          {!q && (
-            <p className="px-3 pt-2 text-faint">
-              For a custom colour or gradient, deselect everything and edit Background in the Canvas panel on the right.
-            </p>
-          )}
         </>
       )}
       <Heading>Generated backgrounds</Heading>

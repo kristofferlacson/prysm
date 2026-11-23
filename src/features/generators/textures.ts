@@ -599,4 +599,59 @@ export const TEXTURES: GeneratorDef[] = [
       }
     }
   }),
+  tex('cardboard', 'Cardboard', 'Surface', 'multiply', 1, ['#b8946a'], 'cardboard box corrugated kraft paper', (g) => {
+    const [c] = g.rgb;
+    g.pixels((x, y, o) => {
+      // Faint corrugation ridges, long paper fibres and the odd darker fleck.
+      const ridge = Math.sin(y * 150) * 0.035;
+      const fibre = (g.n.fbm(x * 60, y * 3, 3) - 0.5) * 0.16;
+      const v = 0.9 + ridge + fibre + (g.n.fbm(x * 3, y * 3, 4) - 0.5) * 0.2;
+      const r = g.rand();
+      const fleck = r < 0.003 ? -38 : (r - 0.5) * 12;
+      o[0] = c[0] * v + fleck;
+      o[1] = c[1] * v + fleck;
+      o[2] = c[2] * v + fleck;
+    });
+  }),
+  tex('dirt', 'Dirt', 'Vintage', 'multiply', 0.85, ['#4a3a28'], 'dirt smudge stain grime dirty', (g) => {
+    const [c] = g.rgb;
+    g.pixels((x, y, o) => {
+      // White where clean (multiply leaves the design alone), stained where the noise pools.
+      const smudge = smoothstep(0.52, 0.78, g.n.fbm(x * 3.2, y * 3.2, 5));
+      const grit = g.n.fbm(x * 70, y * 70, 2) > 0.72 ? 0.5 : 0;
+      const speck = g.rand() < 0.0025 ? 0.9 : 0;
+      const k = clamp01(smudge * 0.75 + grit * smudge + speck);
+      o[0] = 255 + (c[0] - 255) * k;
+      o[1] = 255 + (c[1] - 255) * k;
+      o[2] = 255 + (c[2] - 255) * k;
+    });
+  }),
+  tex('distressed-edges', 'Distressed edges', 'Vintage', 'multiply', 1, ['#2a2018'], 'distressed worn edges border aged frame', (g) => {
+    const [c] = g.rgb;
+    g.pixels((x, y, o) => {
+      // Clean in the middle; towards the border the wear eats in unevenly.
+      const edge = g.edge(x, y);
+      const rough = g.n.fbm(x * 9, y * 9, 5) * 0.55 + g.n.fbm(x * 48, y * 48, 2) * 0.2;
+      const k = smoothstep(0.62, 0.98, edge * 0.82 + rough * edge);
+      o[0] = 255 + (c[0] - 255) * k;
+      o[1] = 255 + (c[1] - 255) * k;
+      o[2] = 255 + (c[2] - 255) * k;
+    });
+  }),
+  tex('dithering', 'Dithering', 'Digital', 'overlay', 0.6, ['#101014', '#f2f2ee'], 'dither dithering bayer 1-bit retro pixel', (g) => {
+    // Ordered (Bayer) dithering of a soft tonal field: only two colours, shade made from the pattern.
+    const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    const cell = Math.max(1, Math.round(g.s / 320));
+    const [dark, light] = g.rgb;
+    g.pixels((x, y, o) => {
+      const px = Math.floor((x * g.s) / cell);
+      const py = Math.floor((y * g.s) / cell);
+      const tone = clamp01(g.n.fbm((px * cell) / g.s * 2.2, (py * cell) / g.s * 2.2, 4) * 1.5 - 0.25);
+      const on = tone > (bayer[(py % 4) * 4 + (px % 4)] + 0.5) / 16;
+      const c = on ? light : dark;
+      o[0] = c[0];
+      o[1] = c[1];
+      o[2] = c[2];
+    });
+  }),
 ];

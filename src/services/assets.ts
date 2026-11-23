@@ -55,6 +55,8 @@ export const imageSize = (img: HTMLImageElement) => ({
   height: img.naturalHeight || img.height || 512,
 });
 
+export const getAssetUrl = (id: string) => urls.get(id) ?? null;
+
 /** The decoded image for an asset, if it has been loaded already. */
 export const getAssetImage = (id: string) => images.get(id) ?? null;
 

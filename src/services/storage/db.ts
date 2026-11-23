@@ -1,8 +1,8 @@
 /** Minimal promise wrapper around IndexedDB. */
 
 const DB_NAME = 'prysm';
-const DB_VERSION = 2;
-export type StoreName = 'projects' | 'assets' | 'rasters';
+const DB_VERSION = 4;
+export type StoreName = 'projects' | 'assets' | 'rasters' | 'library' | 'fonts';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -14,6 +14,8 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('rasters')) db.createObjectStore('rasters', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('library')) db.createObjectStore('library', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('fonts')) db.createObjectStore('fonts', { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

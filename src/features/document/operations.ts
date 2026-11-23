@@ -25,10 +25,19 @@ export function collectRasterIds(layers: Layer[], out = new Set<string>()): Set<
     if (l.type === 'image') {
       if (l.source.kind === 'raster') out.add(l.source.rasterId);
       for (const m of l.masks) out.add(m.rasterId);
+      if (l.fade?.shape) out.add(l.fade.shape.rasterId);
+      if (l.fade?.paint) out.add(l.fade.paint.rasterId);
     } else if (l.type === 'group') {
       collectRasterIds(l.children, out);
     }
   }
+  return out;
+}
+
+/** Every bitmap a document keeps alive: its layers' masks and paint, and its saved selections. */
+export function collectDocumentRasterIds(doc: { layers: Layer[]; selections?: { rasterId: string }[] }, out = new Set<string>()): Set<string> {
+  collectRasterIds(doc.layers, out);
+  for (const saved of doc.selections ?? []) out.add(saved.rasterId);
   return out;
 }
 
@@ -254,6 +263,13 @@ export function resizeFromTopLeft(layer: Layer, width: number, height: number) {
   const topLeft = applyMat(m, -layer.width / 2, -layer.height / 2);
   const offset = applyMat([m[0], m[1], m[2], m[3], 0, 0], width / 2, height / 2);
   return { x: topLeft.x + offset.x - width / 2, y: topLeft.y + offset.y - height / 2, width, height };
+}
+
+/** True when the layer has a sibling beneath it, i.e. something it could be clipped to. */
+export function hasLayerBelow(layers: Layer[], id: string): boolean {
+  const index = layers.findIndex((l) => l.id === id);
+  if (index >= 0) return index > 0;
+  return layers.some((l) => l.type === 'group' && hasLayerBelow(l.children, id));
 }
 
 /** The chain of layers from the top level down to (and including) the layer with this id. */

@@ -1,6 +1,6 @@
 import type { Layer, ProjectDocument } from '../../types/document';
-import { migrateDocument } from '../../features/document/migrate';
-import { collectRasterIds } from '../../features/document/operations';
+import { migrateDocument, migrateLayers } from '../../features/document/migrate';
+import { collectDocumentRasterIds, collectRasterIds } from '../../features/document/operations';
 import { dbDelete, dbGet, dbGetAll, dbPut } from './db';
 
 export interface ProjectRecord {
@@ -68,17 +68,20 @@ export const localProjectRepository: ProjectRepository = {
     await dbDelete('projects', id);
   },
 
+  // Saved assets ("My assets") keep the images and bitmaps they use alive, just as projects do.
   async referencedAssetIds() {
     const all = await dbGetAll<ProjectRecord>('projects');
     const ids = new Set<string>();
     for (const rec of all) collectAssetIds(rec.doc.layers, ids);
+    for (const saved of await dbGetAll<{ layers: Layer[] }>('library')) collectAssetIds(saved.layers, ids);
     return ids;
   },
 
   async referencedRasterIds() {
     const all = await dbGetAll<ProjectRecord>('projects');
     const ids = new Set<string>();
-    for (const rec of all) collectRasterIds(migrateDocument(rec.doc).layers, ids);
+    for (const rec of all) collectDocumentRasterIds(migrateDocument(rec.doc), ids);
+    for (const saved of await dbGetAll<{ layers: Layer[] }>('library')) collectRasterIds(migrateLayers(saved.layers), ids);
     return ids;
   },
 };

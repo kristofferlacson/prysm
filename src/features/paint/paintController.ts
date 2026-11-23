@@ -1,6 +1,8 @@
 import { createImage } from '../document/factory';
 import { findLayer, layerToDocument } from '../document/operations';
-import { addMask, blankCanvas } from '../masks/maskActions';
+import { addMask, blankCanvas, maskSize } from '../masks/maskActions';
+import { layerToBitmap } from '../masks/maskSpace';
+import { selectionInLayerSpace } from '../selection/selectionSpace';
 import { getRaster, putRaster } from '../../services/rasters';
 import { useEditorStore } from '../../stores/editorStore';
 import { useToolStore, type BrushSettings } from '../../stores/toolStore';
@@ -10,7 +12,7 @@ import { applyMat, invert, multiply, type Mat, type Point, type Rect } from '../
 import { brushTip, dabAlpha, dabSpacing, StrokePath } from './brush';
 
 /**
- * Brush and eraser strokes on raster data: layer masks and paint layers.
+ * Brush and eraser strokes on raster data: layer masks, paint layers, and the painted part of a fade.
  *
  * A stroke never edits a stored bitmap. It works on a copy that the canvas displays live through
  * the tool store's paint session; when the stroke ends the copy becomes a new raster and the
@@ -24,6 +26,8 @@ export type PaintTool = 'brush' | 'eraser';
 export type PaintTarget =
   | { kind: 'mask'; layer: ImageLayer; reveal: boolean }
   | { kind: 'paint'; layer: ImageLayer; erase: boolean }
+  /** The layer's fade is being painted: strokes fade the image, erasing brings it back. */
+  | { kind: 'fade'; layer: ImageLayer; erase: boolean }
   /** Brush with nothing paintable selected: a paint layer is created for the stroke. */
   | { kind: 'new-paint' }
   /** Eraser on an image without a mask: a mask is added so the erase stays non-destructive. */
@@ -40,6 +44,7 @@ export function resolvePaintTarget(tool: PaintTool, invertErase = false): PaintT
   if (image && (image.locked || !image.visible)) {
     return { kind: 'none', reason: `“${image.name}” is ${image.locked ? 'locked' : 'hidden'}.` };
   }
+  if (image?.fade && ui.fadePaintLayerId === image.id) return { kind: 'fade', layer: image, erase: (tool === 'eraser') !== invertErase };
   const editingMask = !!image && ui.maskEditLayerId === image.id && image.masks.length > 0;
 
   if (tool === 'brush') {
@@ -57,6 +62,8 @@ export function resolvePaintTarget(tool: PaintTool, invertErase = false): PaintT
 interface ActiveStroke {
   layerId: string;
   maskId: string | null;
+  /** The stroke goes to the layer's fade. */
+  fade: boolean;
   base: HTMLCanvasElement;
   buffer: HTMLCanvasElement;
   working: HTMLCanvasElement;
@@ -73,10 +80,13 @@ interface ActiveStroke {
   frame: number | null;
   /** Fold the stroke into the undo step that created its layer or mask. */
   amend: boolean;
+  /** The area selection in this bitmap's space: when set, the stroke only lands inside it. */
+  clip: HTMLCanvasElement | null;
 }
 
 let active: ActiveStroke | null = null;
 let scratch: HTMLCanvasElement | null = null;
+let clipScratch: HTMLCanvasElement | null = null;
 
 export const isPainting = () => active !== null;
 
@@ -156,7 +166,23 @@ function flush(st: ActiveStroke) {
   ctx.drawImage(st.base, x, y, w, h, x, y, w, h);
   ctx.globalAlpha = st.settings.opacity;
   ctx.globalCompositeOperation = st.erase ? 'destination-out' : 'source-over';
-  ctx.drawImage(st.buffer, x, y, w, h, x, y, w, h);
+  if (st.clip) {
+    // Keep only the part of the stroke that falls inside the selection.
+    clipScratch ??= document.createElement('canvas');
+    if (clipScratch.width < w || clipScratch.height < h) {
+      clipScratch.width = Math.max(clipScratch.width, w);
+      clipScratch.height = Math.max(clipScratch.height, h);
+    }
+    const cctx = clipScratch.getContext('2d')!;
+    cctx.globalCompositeOperation = 'source-over';
+    cctx.clearRect(0, 0, w, h);
+    cctx.drawImage(st.buffer, x, y, w, h, 0, 0, w, h);
+    cctx.globalCompositeOperation = 'destination-in';
+    cctx.drawImage(st.clip, x, y, w, h, 0, 0, w, h);
+    ctx.drawImage(clipScratch, 0, 0, w, h, x, y, w, h);
+  } else {
+    ctx.drawImage(st.buffer, x, y, w, h, x, y, w, h);
+  }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
   useToolStore.setState((s) => (s.session ? { session: { ...s.session, version: s.session.version + 1 } } : s));
@@ -199,19 +225,25 @@ export function beginStroke(tool: PaintTool, point: Point, pressure = 1, invertE
   const mask = target.kind === 'mask' ? layer.masks[0] : null;
   // Keep the interface honest about what is being edited.
   if (mask && ui.maskEditLayerId !== layer.id) ui.set({ maskEditLayerId: layer.id });
-  const rasterId = mask ? mask.rasterId : layer.source.kind === 'raster' ? layer.source.rasterId : null;
-  const base = rasterId ? getRaster(rasterId) : null;
+  const onFade = target.kind === 'fade';
+  let base: HTMLCanvasElement | null;
+  if (onFade) {
+    // The first stroke starts from nothing painted, at the resolution a mask of this image would have.
+    const painted = layer.fade?.paint;
+    const size = painted ? null : maskSize(layer.source);
+    base = painted ? getRaster(painted.rasterId) : size ? blankCanvas(size.width, size.height) : null;
+  } else {
+    const rasterId = mask ? mask.rasterId : layer.source.kind === 'raster' ? layer.source.rasterId : null;
+    base = rasterId ? getRaster(rasterId) : null;
+  }
   const toDoc = layerToDocument(useEditorStore.getState().doc.layers, layer.id);
   if (!base || !toDoc) {
     ui.notify('That layer is still loading. Try again in a moment.');
     return false;
   }
 
-  // Layer coordinates -> source-image pixels, allowing for the crop.
-  const { crop } = layer;
-  const kx = ((1 - crop.left - crop.right) * base.width) / layer.width;
-  const ky = ((1 - crop.top - crop.bottom) * base.height) / layer.height;
-  const toRaster = multiply([kx, 0, 0, ky, crop.left * base.width, crop.top * base.height], invert(toDoc));
+  // Document -> the layer's own box -> the bitmap's pixels (source space; see maskSpace.ts).
+  const toRaster = multiply(layerToBitmap(layer, base.width, base.height), invert(toDoc));
 
   const settings = tool === 'brush' ? tools.brush : tools.eraser;
   const erase = target.kind === 'mask' ? !target.reveal : target.erase;
@@ -221,13 +253,14 @@ export function beginStroke(tool: PaintTool, point: Point, pressure = 1, invertE
   active = {
     layerId: layer.id,
     maskId: mask?.id ?? null,
+    fade: onFade,
     base,
     buffer: strokeBuffer(base.width, base.height),
     working,
     toRaster,
     erase,
-    // Masks store coverage only, so mask strokes are always drawn in white.
-    tip: brushTip(target.kind === 'mask' || erase ? '#ffffff' : tools.color, settings.hardness),
+    // Masks and fades store coverage only, so their strokes are always drawn in white.
+    tip: brushTip(target.kind !== 'paint' || erase ? '#ffffff' : tools.color, settings.hardness),
     settings,
     alpha: dabAlpha(settings.flow),
     path: new StrokePath(dabSpacing(settings.size, settings.hardness), settings.smoothing),
@@ -236,9 +269,10 @@ export function beginStroke(tool: PaintTool, point: Point, pressure = 1, invertE
     dirty: null,
     frame: null,
     amend,
+    clip: selectionInLayerSpace(layer, base.width, base.height),
   };
   useToolStore.setState({
-    session: { layerId: layer.id, target: mask ? 'mask' : 'content', maskId: mask?.id ?? null, canvas: working, version: 0 },
+    session: { layerId: layer.id, target: mask ? 'mask' : onFade ? 'fade' : 'content', maskId: mask?.id ?? null, canvas: working, version: 0 },
   });
   for (const p of active.path.add(point)) stamp(active, p, pressure);
   schedule(active);
@@ -272,6 +306,7 @@ export function endStroke() {
     [st.layerId],
     (l) => {
       if (l.type !== 'image') return {};
+      if (st.fade) return l.fade ? { fade: { ...l.fade, paint: { rasterId, width: st.working.width, height: st.working.height } } } : {};
       if (st.maskId) return { masks: l.masks.map((m) => (m.id === st.maskId ? { ...m, rasterId } : m)) };
       return l.source.kind === 'raster' ? { source: { ...l.source, rasterId } } : {};
     },

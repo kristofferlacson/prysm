@@ -54,6 +54,13 @@ export function strokeProps(stroke: Stroke | null) {
   return { strokeEnabled: true, stroke: stroke.color, strokeWidth: stroke.width };
 }
 
+/** Dash pattern for a shape outline, scaled to its thickness. Dotted lines need round caps to become dots. */
+export function dashProps(stroke: Stroke | null): { dash?: number[]; dashEnabled: boolean; lineCap?: 'round' | 'butt' } {
+  const w = stroke?.width ?? 0;
+  if (!stroke || w <= 0 || !stroke.dash || stroke.dash === 'solid') return { dashEnabled: false };
+  return stroke.dash === 'dashed' ? { dashEnabled: true, dash: [w * 3, w * 2] } : { dashEnabled: true, dash: [0.001, w * 2], lineCap: 'round' };
+}
+
 export const isOpenShape = (shape: ShapeLayer['shape']) => shape === 'line' || shape === 'arrow';
 
 /** Traces a shape layer's outline inside its width x height box. */
@@ -98,6 +105,11 @@ export function traceShape(ctx: Konva.Context, l: ShapeLayer) {
       }
       break;
     }
+    case 'icon':
+    case 'graphic':
+      // Drawn by their own code; their outline (for hit testing and clipping) is the box.
+      ctx.rect(0, 0, w, h);
+      break;
     case 'line':
       ctx.moveTo(0, cy);
       ctx.lineTo(w, cy);

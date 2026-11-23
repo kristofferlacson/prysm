@@ -6,6 +6,7 @@ import { useToolStore } from '../../stores/toolStore';
 import { useUiStore } from '../../stores/uiStore';
 import { hashString } from '../../utils/misc';
 import { renderGenerated } from '../generators/render';
+import { applyFade, isEmptyFade } from './fade';
 import {
   composeMasks,
   FULL_MAX_DIM,
@@ -32,15 +33,20 @@ export interface LayerImage {
  */
 export function useLayerImage(layer: ImageLayer): LayerImage {
   const { source, masks, crop } = layer;
+  const session = useToolStore((s) => (s.session?.layerId === layer.id ? s.session : null));
+  const liveContent = session?.target === 'content' ? session : null;
+  const liveMask = session?.target === 'mask' ? session : null;
+  // A brush stroke on the fade, while it is being drawn.
+  const liveFade = session?.target === 'fade' ? session : null;
+  const fade = layer.fade && layer.fade.strength > 0 && (liveFade || !isEmptyFade(layer.fade)) ? layer.fade : null;
+  const fadeShape = useRaster(fade?.shape?.rasterId ?? null);
+  const fadePaint = useRaster(fade?.paint?.rasterId ?? null);
   const asset = useAssetImage(source.kind === 'asset' ? source.assetId : null);
   const raster = useRaster(source.kind === 'raster' ? source.rasterId : null);
   const maskRasters = useRasters(masks.map((m) => m.rasterId));
   const quality = useUiStore((s) => s.renderQuality);
   const viewMask = useUiStore((s) => s.maskViewLayerId === layer.id);
   const bypassMask = useUiStore((s) => s.maskBypassLayerId === layer.id);
-  const session = useToolStore((s) => (s.session?.layerId === layer.id ? s.session : null));
-  const liveContent = session?.target === 'content' ? session : null;
-  const liveMask = session?.target === 'mask' ? session : null;
   const output = useRef<HTMLCanvasElement | null>(null);
 
   const base = useMemo<RasterSource | null>(() => {
@@ -71,14 +77,19 @@ export function useLayerImage(layer: ImageLayer): LayerImage {
       else if (maskRasters[i]?.status === 'loading') pending = true;
     });
     // Never flash the unmasked image while a mask is still being loaded.
-    if (pending) return null;
+    if (pending || (fade?.shape && !fadeShape.canvas && fadeShape.status === 'loading')) return null;
+    if (fade?.paint && !liveFade && !fadePaint.canvas && fadePaint.status === 'loading') return null;
     const { width, height } = sourceSize(processed);
     output.current ??= document.createElement('canvas');
     if (viewMask && masks.length) return renderMaskView(inputs, crop, width, height, output.current);
-    if (!inputs.length || bypassMask) return processed;
-    return composeMasks(processed, inputs, crop, width, height, output.current);
+    const unmasked = !inputs.length || bypassMask;
+    if (unmasked && !fade) return processed;
+    // Masks first, then the fade: both only ever change how much of the image shows.
+    const result = composeMasks(processed, unmasked ? [] : inputs, crop, width, height, output.current);
+    if (fade) applyFade(result, fade, fadeShape.canvas, crop, liveFade ? liveFade.canvas : fadePaint.canvas);
+    return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processed, masks, maskKey, crop, viewMask, bypassMask, liveMask?.version, liveMask?.canvas]);
+  }, [processed, masks, maskKey, crop, viewMask, bypassMask, fade, fadeShape.canvas, fadeShape.status, fadePaint.canvas, fadePaint.status, liveFade?.version, liveFade?.canvas, liveMask?.version, liveMask?.canvas]);
 
   const sourceStatus = source.kind === 'asset' ? asset.status : source.kind === 'raster' ? raster.status : 'missing';
   return { image, status: image ? 'ready' : base ? 'loading' : sourceStatus };

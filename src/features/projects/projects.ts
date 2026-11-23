@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { createDocument } from '../document/factory';
-import { collectRasterIds } from '../document/operations';
+import { collectDocumentRasterIds } from '../document/operations';
 import { collectGarbage, persistRasters, pinRasters } from '../../services/rasters';
 import { deleteAsset, refreshAssetLibrary, useAssetLibrary } from '../../services/assets';
 import { renderThumbnail } from '../../services/export';
@@ -27,7 +27,7 @@ export function saveNow(): Promise<void> {
       // Only capture a thumbnail when the canvas still shows the document being saved.
       const current = useEditorStore.getState().doc.id === doc.id;
       // Mask and paint bitmaps must be on disk before a document that points at them.
-      await persistRasters(collectRasterIds(doc.layers));
+      await persistRasters(collectDocumentRasterIds(doc));
       await projectRepository.save(doc, current ? await renderThumbnail() : null);
       localStorage.setItem(LAST_PROJECT_KEY, useEditorStore.getState().doc.id);
       if (useEditorStore.getState().doc === doc) useUiStore.getState().set({ saveStatus: 'saved' });
@@ -54,13 +54,14 @@ export async function openProject(id: string): Promise<boolean> {
   await flushPending();
   const doc = await projectRepository.load(id);
   if (!doc) return false;
-  pinRasters(collectRasterIds(doc.layers));
+  pinRasters(collectDocumentRasterIds(doc));
   useEditorStore.getState().loadDocument(doc);
   localStorage.setItem(LAST_PROJECT_KEY, id);
   useUiStore.getState().set({
     saveStatus: 'saved',
     editingTextId: null,
     maskEditLayerId: null,
+    fadePaintLayerId: null,
     maskViewLayerId: null,
     maskBypassLayerId: null,
   });
@@ -148,7 +149,7 @@ export function useProjectPersistence(onReady: () => void) {
       void removeUnusedRasters().catch(() => {});
       unsubscribe = useEditorStore.subscribe((state, prev) => {
         if (state.doc === prev.doc) return;
-        if (state.doc.layers !== prev.doc.layers) pinRasters(collectRasterIds(state.doc.layers));
+        if (state.doc.layers !== prev.doc.layers || state.doc.selections !== prev.doc.selections) pinRasters(collectDocumentRasterIds(state.doc));
         scheduleSave();
       });
       onReady();

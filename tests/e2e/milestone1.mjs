@@ -42,6 +42,11 @@ const layers = async () => (await state(page)).doc.layers;
 const layerById = async (id) => (await layers()).find((l) => l.id === id);
 const selectRow = (id, modifiers = []) => page.locator(`[data-layer-id="${id}"]`).click({ modifiers });
 const settle = (ms = 120) => page.waitForTimeout(ms);
+const confirm = async () => {
+  const dlg = page.locator('[data-testid="confirm-dialog"]');
+  await dlg.locator('button').last().click();
+  await dlg.waitFor({ state: 'detached' });
+};
 
 async function drag(from, to, steps = 10) {
   await page.mouse.move(from.x, from.y);
@@ -652,6 +657,7 @@ await section('Export: formats, dimensions and fidelity', async () => {
 await section('Templates and project management', async () => {
   await openTab('templates');
   await page.locator('[data-template="social-quote"]').click();
+  await confirm();
   await settle(500);
   let s = await state(page);
   t.check('template replaces the design with editable layers', s.doc.width === 1080 && s.doc.layers.length >= 4 && s.doc.layers.some((l) => l.type === 'text'));
@@ -685,6 +691,7 @@ await section('Templates and project management', async () => {
 
   await page.getByRole('button', { name: 'Projects' }).click();
   await dlg.getByRole('button', { name: 'Delete Second copy' }).click();
+  await confirm();
   await page.waitForFunction((n) => document.querySelectorAll('[data-testid="project-card"]').length === n, count);
   s = await state(page);
   t.check('deleting the open project opens another one', s.doc.name !== 'Second copy');
@@ -716,13 +723,18 @@ await section('View: zoom, pan, grid and rulers', async () => {
   t.check('fit to screen restores the framing', near((await view(page)).zoom, before.zoom, 0.01));
 
   await page.keyboard.press('Escape');
-  await page.locator('[data-testid="canvas-size"]').click();
-  await page.getByRole('switch', { name: 'Show grid' }).click();
-  await page.getByRole('switch', { name: 'Show rulers' }).click();
+  const viewMenu = page.locator('[data-testid="view-menu"]');
+  await page.getByRole('button', { name: 'View options' }).click();
+  await viewMenu.getByRole('switch', { name: 'Show grid' }).click();
+  await viewMenu.getByRole('switch', { name: 'Show rulers' }).click();
   t.check('grid and rulers can be toggled', await page.evaluate(() => { const s = window.__prysm.ui.getState(); return s.showGrid && !s.showRulers; }));
-  await page.getByRole('switch', { name: 'Show rulers' }).click();
+  await viewMenu.getByRole('switch', { name: 'Show rulers' }).click();
+  await page.keyboard.press('Escape');
+  await viewMenu.waitFor({ state: 'detached' });
   await page.screenshot({ path: join(OUTPUT_DIR, 'final-with-grid.png') });
-  await page.getByRole('switch', { name: 'Show grid' }).click();
+  await page.getByRole('button', { name: 'View options' }).click();
+  await viewMenu.getByRole('switch', { name: 'Show grid' }).click();
+  await page.keyboard.press('Escape');
 });
 
 await page.screenshot({ path: join(OUTPUT_DIR, 'final.png') });

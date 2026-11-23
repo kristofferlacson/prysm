@@ -167,6 +167,21 @@ export async function collectGarbage(referenced: Set<string>) {
   return removed;
 }
 
+/** Memory picture of the store, for diagnostics and tests. */
+export function rasterStats() {
+  let decodedPixels = 0;
+  let encodedBytes = 0;
+  let decoded = 0;
+  for (const e of entries.values()) {
+    if (e.canvas) {
+      decoded++;
+      decodedPixels += e.width * e.height;
+    }
+    encodedBytes += e.blob?.size ?? 0;
+  }
+  return { total: entries.size, decoded, decodedPixels, encodedBytes, pinned: pinned.size, budgetPixels: MEMORY_BUDGET_PX };
+}
+
 /** Small data-URL preview. Masks are shown as greyscale (white = reveal) on black. */
 export function rasterThumbnail(id: string, kind: 'mask' | 'image', size = 56): string | null {
   const key = `${id}:${kind}`;

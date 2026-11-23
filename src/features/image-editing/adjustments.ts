@@ -1,8 +1,12 @@
 import type { Adjustments } from '../../types/document';
 import { DEFAULT_ADJUSTMENTS } from '../document/factory';
+import { isDefaultCurves, isDefaultLevels, toneLuts } from './tone';
+
+/** The adjustments that are a single number (levels and curves have their own editors). */
+export type SliderAdjustment = Exclude<keyof Adjustments, 'levels' | 'curves'>;
 
 export interface AdjustmentSpec {
-  key: keyof Adjustments;
+  key: SliderAdjustment;
   label: string;
   min: number;
   max: number;
@@ -26,7 +30,7 @@ export const ADJUSTMENT_SPECS: AdjustmentSpec[] = [
 ];
 
 export function isNeutral(a: Adjustments) {
-  return ADJUSTMENT_SPECS.every((s) => a[s.key] === DEFAULT_ADJUSTMENTS[s.key]);
+  return ADJUSTMENT_SPECS.every((s) => a[s.key] === DEFAULT_ADJUSTMENTS[s.key]) && isDefaultLevels(a.levels) && isDefaultCurves(a.curves);
 }
 
 type M3 = number[]; // row-major 3x3
@@ -66,7 +70,7 @@ const sepiaMatrix = (amount: number): M3 => {
 
 /**
  * Applies all colour adjustments to RGBA pixel data in a single pass:
- * per-channel tone curve (exposure, white balance, brightness, contrast, gamma) via lookup tables,
+ * per-channel tone curve (exposure, white balance, brightness, contrast, gamma, then levels and curves) via lookup tables,
  * luminance-weighted highlights/shadows, a combined colour matrix (saturation, hue, grayscale, sepia), then invert.
  */
 export function applyAdjustments(d: Uint8ClampedArray, a: Adjustments) {
@@ -91,6 +95,13 @@ export function applyAdjustments(d: Uint8ClampedArray, a: Adjustments) {
     }
     return lut;
   });
+  // Levels and curves are also value-to-value maps, so they are folded into the same tables.
+  const tone3 = toneLuts(a.levels, a.curves);
+  if (tone3) {
+    luts.forEach((lut, channel) => {
+      for (let i = 0; i < 256; i++) lut[i] = tone3[channel][lut[i]];
+    });
+  }
   const [lr, lg, lb] = luts;
 
   const sh = a.shadows / 100;

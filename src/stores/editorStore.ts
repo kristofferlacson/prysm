@@ -9,6 +9,7 @@ import {
   findLayer,
   findLayers,
   groupLayers,
+  hasLayerBelow,
   isTopLevel,
   mapLayers,
   moveLayer,
@@ -71,7 +72,10 @@ interface EditorState {
   distributeSelected: (axis: 'x' | 'y') => void;
   nudgeSelected: (dx: number, dy: number) => void;
   flipSelected: (axis: 'x' | 'y') => void;
-  setCrop: (id: string, crop: CropInsets) => void;
+  /** `step` names the undo step: calls with the same name in quick succession are one step. */
+  setCrop: (id: string, crop: CropInsets, step?: string) => void;
+  /** Clips the selected layers to the layer below them, or releases them if they are all clipped already. */
+  toggleClipSelected: () => void;
 
   select: (ids: string[]) => void;
   toggleSelect: (id: string) => void;
@@ -134,7 +138,8 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     setDocument: (patch, opts) => commit((doc) => ({ ...doc, ...patch }), opts),
 
     replaceContent: (content) =>
-      commit((doc) => ({ ...doc, ...content, layers: content.layers.map((l) => cloneLayer(l)) }), {}, []),
+      // A template is a new design on a new canvas: selections saved for the old one do not carry over.
+      commit((doc) => ({ ...doc, ...content, layers: content.layers.map((l) => cloneLayer(l)), selections: [] }), {}, []),
 
     addLayers: (layers, opts) => {
       if (!layers.length) return;
@@ -257,7 +262,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     flipSelected: (axis) =>
       get().updateLayers(get().selectedIds, (l) => (axis === 'x' ? { scaleX: -l.scaleX } : { scaleY: -l.scaleY })),
 
-    setCrop: (id, crop) => {
+    setCrop: (id, crop, step = 'crop') => {
       const layer = findLayer(get().doc.layers, id);
       if (!layer || layer.type !== 'image') return;
       const old = layer.crop;
@@ -274,7 +279,16 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       const cx = layer.x + layer.width / 2 + sx * Math.cos(r) - sy * Math.sin(r);
       const cy = layer.y + layer.height / 2 + sx * Math.sin(r) + sy * Math.cos(r);
       const patch: Partial<ImageLayer> = { crop, width, height, x: cx - width / 2, y: cy - height / 2 };
-      get().updateLayers([id], patch, { coalesce: 'crop' });
+      get().updateLayers([id], patch, { coalesce: step });
+    },
+
+    toggleClipSelected: () => {
+      const { doc, selectedIds } = get();
+      const layers = findLayers(doc.layers, selectedIds);
+      if (!layers.length) return;
+      const release = layers.every((l) => l.clip);
+      const ids = layers.filter((l) => release || hasLayerBelow(doc.layers, l.id)).map((l) => l.id);
+      get().updateLayers(ids, { clip: !release });
     },
 
     select: (ids) => set({ selectedIds: ids }),
@@ -320,6 +334,11 @@ export function useSelectedLayers(): Layer[] {
 
 export function canGroup(doc: ProjectDocument, selectedIds: string[]) {
   return selectedIds.length > 1 && selectedIds.every((id) => isTopLevel(doc.layers, id));
+}
+
+export function canClip(doc: ProjectDocument, selectedIds: string[]) {
+  const layers = findLayers(doc.layers, selectedIds);
+  return layers.length > 0 && (layers.every((l) => l.clip) || layers.some((l) => hasLayerBelow(doc.layers, l.id)));
 }
 
 export function canUngroup(doc: ProjectDocument, selectedIds: string[]) {

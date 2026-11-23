@@ -16,7 +16,8 @@ import { BackgroundsPanel } from './panels/BackgroundsPanel';
 import { EffectsPanel } from './panels/EffectsPanel';
 import { ElementsPanel } from './panels/ElementsPanel';
 import { GeneratorPanel } from './panels/GeneratorPanel';
-import { AiPanel, PhotosPanel } from './panels/PlannedPanels';
+import { AiPanel } from './panels/AiPanel';
+import { PhotosPanel } from './panels/PlannedPanels';
 import { TemplatesPanel } from './panels/TemplatesPanel';
 import { TextPanel } from './panels/TextPanel';
 import { UploadsPanel } from './panels/UploadsPanel';
@@ -63,8 +64,8 @@ export function Sidebar() {
   const tab = useUiStore((s) => s.sidebarTab);
   const setTab = useUiStore((s) => s.setSidebarTab);
   return (
-    <div className="flex shrink-0 border-r border-line bg-panel">
-      <nav aria-label="Asset libraries" className="flex w-[60px] flex-col items-stretch gap-0.5 overflow-y-auto py-1.5">
+    <div className="ui-scale flex shrink-0 border-r border-line bg-panel">
+      <nav aria-label="Asset libraries" className="flex w-[76px] flex-col items-stretch gap-1 overflow-y-auto py-2">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -72,7 +73,7 @@ export function Sidebar() {
             data-tab={id}
             aria-pressed={tab === id}
             onClick={() => setTab(id)}
-            className={`mx-1 flex flex-col items-center gap-1 rounded py-1.5 text-[9.5px] leading-none transition-colors ${
+            className={`mx-1.5 flex flex-col items-center gap-1.5 rounded-md py-2 text-[10px] leading-none transition-colors ${
               tab === id ? 'bg-accent/15 text-accent' : 'text-dim hover:bg-hover hover:text-ink'
             }`}
           >
@@ -82,7 +83,7 @@ export function Sidebar() {
         ))}
       </nav>
       {tab && (
-        <div data-testid="sidebar-panel" className="w-[268px] border-l border-line">
+        <div data-testid="sidebar-panel" className="w-[292px] border-l border-line">
           <Panel tab={tab} />
         </div>
       )}

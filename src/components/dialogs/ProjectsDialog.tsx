@@ -4,6 +4,7 @@ import { CANVAS_PRESETS } from '../../features/projects/presets';
 import { deleteProject, duplicateProject, newProject, openProject, renameProject, saveNow } from '../../features/projects/projects';
 import { projectRepository, type ProjectSummary } from '../../services/storage/projectRepository';
 import { useEditorStore } from '../../stores/editorStore';
+import { askConfirm } from '../../stores/uiStore';
 import { NumberInput, Select, TextButton } from '../ui/controls';
 import { Modal } from './Modal';
 
@@ -147,7 +148,13 @@ export function ProjectsDialog({ onClose }: { onClose: () => void }) {
                   title="Delete"
                   aria-label={`Delete ${p.name}`}
                   onClick={async () => {
-                    if (!window.confirm(`Delete “${p.name}”? This cannot be undone.`)) return;
+                    const ok = await askConfirm({
+                      title: 'Delete this project?',
+                      message: `“${p.name}” will be removed from this browser. This cannot be undone.`,
+                      confirmLabel: 'Delete project',
+                      danger: true,
+                    });
+                    if (!ok) return;
                     await deleteProject(p.id);
                     await refresh();
                   }}

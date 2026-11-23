@@ -3,3 +3,5 @@ dist
 *.local
 .vite
 tests/e2e/output
+public/models/*.onnx
+.env

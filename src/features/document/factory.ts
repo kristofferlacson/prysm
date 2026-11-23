@@ -10,11 +10,14 @@ import type {
   ProjectDocument,
   ShapeKind,
   ShapeLayer,
+  TextEffects,
   TextLayer,
 } from '../../types/document';
 import { uid } from '../../utils/misc';
 
 export const DEFAULT_ADJUSTMENTS: Adjustments = {
+  levels: null,
+  curves: null,
   brightness: 0,
   contrast: 0,
   saturation: 0,
@@ -31,6 +34,8 @@ export const DEFAULT_ADJUSTMENTS: Adjustments = {
 };
 
 export const NO_CROP: CropInsets = { left: 0, top: 0, right: 0, bottom: 0 };
+
+export const NO_TEXT_EFFECTS: TextEffects = { glow: null, extrude: null, bevel: null, distress: null, backdrop: null, fold: null };
 
 export function baseLayer(name: string, x: number, y: number, width: number, height: number): LayerBase {
   return {
@@ -56,12 +61,13 @@ export function createDocument(name: string, width: number, height: number): Pro
   const now = Date.now();
   return {
     id: uid('p'),
-    schemaVersion: 2,
+    schemaVersion: 6,
     name,
     width,
     height,
     background: { type: 'solid', color: '#ffffff' },
     layers: [],
+    selections: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -75,6 +81,8 @@ const SHAPE_NAMES: Record<ShapeKind, string> = {
   star: 'Star',
   line: 'Line',
   arrow: 'Arrow',
+  icon: 'Icon',
+  graphic: 'Graphic',
 };
 
 export function createShape(kind: ShapeKind, docW: number, docH: number, overrides: Partial<ShapeLayer> = {}): ShapeLayer {
@@ -123,6 +131,9 @@ export function createText(preset: TextPreset, docW: number, docH: number, overr
     letterSpacing: 0,
     fill: { type: 'solid', color: '#1d1e22' },
     stroke: null,
+    warp: null,
+    path: null,
+    effects: NO_TEXT_EFFECTS,
     ...overrides,
   };
 }
@@ -185,5 +196,8 @@ export function createGroup(children: Layer[], x: number, y: number, width: numb
 export function cloneLayer(layer: Layer, dx = 0, dy = 0): Layer {
   const copy = { ...layer, id: uid(), x: layer.x + dx, y: layer.y + dy } as Layer;
   if (copy.type === 'group') copy.children = copy.children.map((c) => cloneLayer(c));
+  // The copy gets its own masks. They start out pointing at the same (immutable) bitmaps,
+  // so nothing is duplicated until one of them is edited.
+  if (copy.type === 'image') copy.masks = copy.masks.map((m) => ({ ...m, id: uid('m') }));
   return copy;
 }

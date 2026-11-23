@@ -1,13 +1,15 @@
+import { create } from 'zustand';
 import { useUiStore } from '../stores/uiStore';
+import { dbDelete, dbGetAll, dbPut } from './storage/db';
 
-export type FontCategory = 'Sans' | 'Serif' | 'Display' | 'Handwriting' | 'Mono';
+export type FontCategory = 'Sans' | 'Serif' | 'Display' | 'Handwriting' | 'Mono' | 'Decorative' | 'Uploaded';
 
 export interface FontDef {
   family: string;
   category: FontCategory;
   weights: number[];
-  /** 'google' fonts are fetched from Google Fonts on first use; 'system' fonts ship with the OS. */
-  source: 'google' | 'system';
+  /** 'google' fonts are fetched from Google Fonts on first use; 'system' fonts ship with the OS; 'uploaded' ones were added by the user. */
+  source: 'google' | 'system' | 'uploaded';
 }
 
 const g = (family: string, category: FontCategory, weights: number[] = [400]): FontDef => ({
@@ -48,15 +50,15 @@ export const FONTS: FontDef[] = [
   g('Abril Fatface', 'Display'),
   g('Archivo Black', 'Display'),
   g('Alfa Slab One', 'Display'),
-  g('Righteous', 'Display'),
-  g('Bungee', 'Display'),
-  g('Monoton', 'Display'),
-  g('Permanent Marker', 'Display'),
+  g('Righteous', 'Decorative'),
+  g('Bungee', 'Decorative'),
+  g('Monoton', 'Decorative'),
+  g('Permanent Marker', 'Decorative'),
   sys('Impact', 'Display'),
   g('Pacifico', 'Handwriting'),
   g('Dancing Script', 'Handwriting', [400, 500, 600, 700]),
   g('Caveat', 'Handwriting', [400, 500, 600, 700]),
-  g('Lobster', 'Handwriting'),
+  g('Lobster', 'Decorative'),
   g('Great Vibes', 'Handwriting'),
   g('Satisfy', 'Handwriting'),
   g('Space Mono', 'Mono', [400, 700]),
@@ -71,6 +73,8 @@ const FALLBACK: Record<FontCategory, string> = {
   Display: 'sans-serif',
   Handwriting: 'cursive',
   Mono: 'monospace',
+  Decorative: 'sans-serif',
+  Uploaded: 'sans-serif',
 };
 
 const byFamily = new Map(FONTS.map((f) => [f.family, f]));
@@ -116,4 +120,74 @@ export async function ensureFont(family: string, weight = 400, italic = false) {
 export function nearestWeight(family: string, weight: number) {
   const weights = byFamily.get(family)?.weights ?? [400, 700];
   return weights.reduce((best, w) => (Math.abs(w - weight) < Math.abs(best - weight) ? w : best), weights[0]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Uploaded fonts. The file is kept in this browser (IndexedDB) and registered with the page on
+// every start, so text set in it renders the same on the canvas and in exports. A project
+// opened where the font is missing falls back to a generic face without losing the font's name.
+// ---------------------------------------------------------------------------------------------
+
+interface StoredFont {
+  id: string;
+  family: string;
+  fileName: string;
+  data: ArrayBuffer;
+  addedAt: number;
+}
+
+export const FONT_FILE_TYPES = ['.ttf', '.otf', '.woff', '.woff2'];
+const MAX_FONT_BYTES = 12 * 1024 * 1024;
+
+export const useUploadedFonts = create<{ fonts: FontDef[] }>(() => ({ fonts: [] }));
+
+/** Built-in fonts followed by the user's own. */
+export const allFonts = () => [...FONTS, ...useUploadedFonts.getState().fonts];
+
+async function register(font: StoredFont) {
+  const face = new FontFace(font.family, font.data);
+  await face.load();
+  document.fonts.add(face);
+  const def: FontDef = { family: font.family, category: 'Uploaded', weights: [400, 700], source: 'uploaded' };
+  byFamily.set(font.family, def);
+  useUploadedFonts.setState((s) => ({ fonts: [...s.fonts.filter((f) => f.family !== font.family), def] }));
+}
+
+/** Registers every stored font. Called once when the editor starts. */
+export async function loadUploadedFonts() {
+  try {
+    const stored = await dbGetAll<StoredFont>('fonts');
+    for (const font of stored.sort((a, b) => a.addedAt - b.addedAt)) await register(font).catch(() => {});
+    if (stored.length) useUiStore.setState((s) => ({ fontVersion: s.fontVersion + 1 }));
+  } catch {
+    // Storage unavailable: built-in fonts still work.
+  }
+}
+
+/** Adds a font file to the font list. Throws a readable message if the file cannot be used. */
+export async function uploadFont(file: File): Promise<string> {
+  const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+  if (!FONT_FILE_TYPES.includes(ext)) throw new Error('Use a TTF, OTF, WOFF or WOFF2 font file.');
+  if (file.size > MAX_FONT_BYTES) throw new Error('That font file is larger than 12 MB.');
+  const base = file.name.slice(0, file.name.lastIndexOf('.')).replace(/[-_]+/g, ' ').replace(/[^\w ]/g, '').trim() || 'Uploaded font';
+  // A built-in family of the same name keeps its name; the upload is told apart.
+  let family = base;
+  for (let n = 2; byFamily.has(family) && byFamily.get(family)!.source !== 'uploaded'; n++) family = `${base} ${n}`;
+  const font: StoredFont = { id: family, family, fileName: file.name, data: await file.arrayBuffer(), addedAt: Date.now() };
+  try {
+    await register(font);
+  } catch {
+    throw new Error('That file could not be read as a font.');
+  }
+  await dbPut('fonts', font);
+  useUiStore.setState((s) => ({ fontVersion: s.fontVersion + 1 }));
+  return family;
+}
+
+export async function removeUploadedFont(family: string) {
+  await dbDelete('fonts', family);
+  for (const face of document.fonts) if (face.family.replace(/["']/g, '') === family) document.fonts.delete(face);
+  byFamily.delete(family);
+  useUploadedFonts.setState((s) => ({ fonts: s.fonts.filter((f) => f.family !== family) }));
+  useUiStore.setState((s) => ({ fontVersion: s.fontVersion + 1 }));
 }

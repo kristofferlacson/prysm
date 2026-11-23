@@ -26,12 +26,16 @@ export function FillEditor({
   onChange,
   allowNone,
   noneLabel = 'None',
+  name,
 }: {
   fill: Fill | null;
   onChange: (fill: Fill | null) => void;
   allowNone?: boolean;
   noneLabel?: string;
+  /** What is being filled, when two fill editors can be on screen at once: "Background" names its controls "Background colour", "Background stop 1 colour"… */
+  name?: string;
 }) {
+  const stopName = (i: number) => `${name ? `${name} stop` : 'Stop'} ${i + 1}`;
   const kind: FillKind = fill?.type ?? 'none';
   const options: { value: FillKind; label: string }[] = [
     ...(allowNone ? [{ value: 'none' as const, label: noneLabel }] : []),
@@ -47,7 +51,7 @@ export function FillEditor({
   return (
     <div className="space-y-2">
       <Segmented value={kind} options={options} onChange={(k) => k !== kind && onChange(convert(fill, k))} />
-      {fill?.type === 'solid' && <ColorInput value={fill.color} onChange={(color) => onChange({ type: 'solid', color })} label="Fill colour" />}
+      {fill?.type === 'solid' && <ColorInput value={fill.color} onChange={(color) => onChange({ type: 'solid', color })} label={name ? `${name} colour` : 'Fill colour'} />}
       {fill && fill.type !== 'solid' && (
         <>
           <div className="h-4 rounded border border-line" style={{ background: fillToCss({ type: 'linear', angle: 0, stops: fill.stops }) }} />
@@ -55,7 +59,7 @@ export function FillEditor({
             <div key={i} className="flex items-center gap-1.5">
               <ColorInput
                 value={stop.color}
-                label={`Stop ${i + 1} colour`}
+                label={`${stopName(i)} colour`}
                 onChange={(color) => setStops(fill.stops.map((s, j) => (j === i ? { ...s, color } : s)))}
               />
               <NumberInput
@@ -63,14 +67,14 @@ export function FillEditor({
                 min={0}
                 max={100}
                 prefix="%"
-                label={`Stop ${i + 1} position`}
+                label={`${stopName(i)} position`}
                 className="w-14"
                 onChange={(v) => setStops(fill.stops.map((s, j) => (j === i ? { ...s, offset: v / 100 } : s)))}
               />
               <button
                 type="button"
                 title="Remove stop"
-                aria-label={`Remove stop ${i + 1}`}
+                aria-label={`Remove ${stopName(i).toLowerCase()}`}
                 disabled={fill.stops.length <= 2}
                 onClick={() => setStops(fill.stops.filter((_, j) => j !== i))}
                 className="text-faint hover:text-ink disabled:invisible"

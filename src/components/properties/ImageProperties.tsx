@@ -1,4 +1,6 @@
-import { RefreshCw, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Eye, EyeOff, RefreshCw, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
+import { applyCropPreset, CROP_PRESETS, startCropping, stopCropping } from '../../features/crop/crop';
 import { DEFAULT_ADJUSTMENTS, NO_CROP } from '../../features/document/factory';
 import { EFFECT_MAP } from '../../features/effects/effects';
 import { getGenerator } from '../../features/generators/render';
@@ -6,9 +8,13 @@ import { ADJUSTMENT_SPECS, isNeutral } from '../../features/image-editing/adjust
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
 import type { CropInsets, ImageLayer } from '../../types/document';
-import { ColorInput, Row, Section, SliderRow, TextButton } from '../ui/controls';
+import { ColorInput, Row, Section, Select, SliderRow, TextButton, WithSection } from '../ui/controls';
+import { FadeSection } from './FadeSection';
+import { ExpandSection, UpscaleSection } from './LocalImageTools';
+import { MaskProperties } from './MaskProperties';
 import type { Update } from './PropertiesPanel';
 import { StrokeSection } from './ShapeProperties';
+import { CurvesSection, LevelsSection } from './ToneProperties';
 
 const CROP_SIDES: { key: keyof CropInsets; label: string; opposite: keyof CropInsets }[] = [
   { key: 'left', label: 'Left', opposite: 'right' },
@@ -30,6 +36,8 @@ export function ImageProperties({ layer, update }: { layer: ImageLayer; update: 
   const generator = source.kind === 'generated' ? getGenerator(source.generator) : null;
   const cropped = CROP_SIDES.some((s) => crop[s.key] > 0);
   const edited = cropped || !isNeutral(adjustments) || effects.length > 0;
+  const paint = source.kind === 'raster';
+  const { cropping, cropPreset } = useUiStore(useShallow((s) => ({ cropping: s.cropLayerId === layer.id, cropPreset: s.cropPreset })));
 
   const setCrop = (next: CropInsets) => useEditorStore.getState().setCrop(layer.id, next);
 
@@ -57,7 +65,18 @@ export function ImageProperties({ layer, update }: { layer: ImageLayer; update: 
         </Section>
       )}
 
+      <MaskProperties layer={layer} />
+      <FadeSection layer={layer} update={update} />
+
       <Section title="Crop" defaultOpen={cropped} action={<ResetLink disabled={!cropped} onClick={() => setCrop(NO_CROP)}>Reset</ResetLink>}>
+        <span className="block" title="Drag a crop frame on the picture itself (C)">
+          <TextButton primary={!cropping} className="w-full" onClick={() => (cropping ? stopCropping(true) : startCropping(layer.id))}>
+            {cropping ? 'Done cropping' : 'Crop on canvas'}
+          </TextButton>
+        </span>
+        <Row label="Shape">
+          <Select label="Crop shape" value={cropPreset} options={CROP_PRESETS.map((p) => ({ value: p.id, label: p.label }))} onChange={(id) => applyCropPreset(layer.id, id)} />
+        </Row>
         {CROP_SIDES.map((side) => (
           <SliderRow
             key={side.key}
@@ -93,40 +112,64 @@ export function ImageProperties({ layer, update }: { layer: ImageLayer; update: 
         ))}
       </Section>
 
+      <LevelsSection layer={layer} update={update} />
+      <CurvesSection layer={layer} update={update} />
+
       <Section title="Effects">
         {effects.map((fx, i) => {
           const def = EFFECT_MAP.get(fx.type);
           if (!def) return null;
+          const off = fx.enabled === false;
+          const fxColors = def.colors?.map((c, k) => fx.colors?.[k] ?? c);
+          const patch = (next: Partial<typeof fx>, key?: string) =>
+            update({ effects: effects.map((e, j) => (j === i ? { ...e, ...next } : e)) }, key ? `effect-${fx.type}-${key}` : undefined);
+          const move = (to: number) => {
+            const next = [...effects];
+            next.splice(to, 0, next.splice(i, 1)[0]);
+            update({ effects: next });
+          };
+          const tool = 'flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent';
           return (
-            <div key={fx.type} className="flex items-center gap-1">
-              <div className="min-w-0 flex-1">
-                <SliderRow
-                  label={def.label}
-                  value={Math.round(fx.amount * 100)}
-                  min={0}
-                  max={100}
-                  onChange={(v) =>
-                    update({ effects: effects.map((e, j) => (j === i ? { ...e, amount: v / 100 } : e)) }, `effect-${fx.type}`)
-                  }
-                />
+            <div key={fx.type} data-effect-row={fx.type} data-reveal={fx.type} data-enabled={!off} className={`-mx-2 space-y-1.5 px-2 py-1 ${off ? 'opacity-50' : ''}`}>
+              <SliderRow label={def.label} value={Math.round(fx.amount * 100)} min={0} max={100} onChange={(v) => patch({ amount: v / 100 }, 'amount')} />
+              {def.angle !== undefined && (
+                <SliderRow label="Direction" value={fx.angle ?? def.angle} min={0} max={180} onChange={(angle) => patch({ angle }, 'angle')} />
+              )}
+              {fxColors?.map((color, k) => (
+                <Row key={k} label={fxColors.length > 1 ? `Colour ${k + 1}` : 'Colour'}>
+                  <ColorInput
+                    label={`${def.label} colour ${k + 1}`}
+                    value={color}
+                    onChange={(next) => patch({ colors: fxColors.map((c, m) => (m === k ? next : c)) }, `color-${k}`)}
+                  />
+                </Row>
+              ))}
+              <div className="flex items-center justify-end gap-1">
+                <button type="button" className={tool} title={`${off ? 'Turn on' : 'Turn off'} ${def.label}`} aria-label={`${off ? 'Turn on' : 'Turn off'} ${def.label}`} onClick={() => patch({ enabled: off })}>
+                  {off ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+                <button type="button" className={tool} disabled={i === 0} title={`Apply ${def.label} earlier`} aria-label={`Apply ${def.label} earlier`} onClick={() => move(i - 1)}>
+                  <ArrowUp size={13} />
+                </button>
+                <button type="button" className={tool} disabled={i === effects.length - 1} title={`Apply ${def.label} later`} aria-label={`Apply ${def.label} later`} onClick={() => move(i + 1)}>
+                  <ArrowDown size={13} />
+                </button>
+                <button type="button" className={`${tool} hover:!text-danger`} title={`Remove ${def.label}`} aria-label={`Remove ${def.label}`} onClick={() => update({ effects: effects.filter((_, j) => j !== i) })}>
+                  <X size={13} />
+                </button>
               </div>
-              <button
-                type="button"
-                title={`Remove ${def.label}`}
-                aria-label={`Remove ${def.label}`}
-                onClick={() => update({ effects: effects.filter((_, j) => j !== i) })}
-                className="text-faint hover:text-danger"
-              >
-                <X size={12} />
-              </button>
             </div>
           );
         })}
+        {effects.length > 1 && <p className="leading-relaxed text-faint">Effects are applied from top to bottom; the arrows change the order.</p>}
         {!effects.length && <p className="text-faint">No effects applied.</p>}
         <TextButton className="w-full" onClick={() => useUiStore.getState().set({ sidebarTab: 'effects' })}>
           Browse effects
         </TextButton>
       </Section>
+
+      <ExpandSection layer={layer} />
+      {source.kind === 'asset' && <UpscaleSection layer={layer} />}
 
       <Section title="Frame" defaultOpen={layer.cornerRadius > 0}>
         <SliderRow
@@ -140,6 +183,7 @@ export function ImageProperties({ layer, update }: { layer: ImageLayer; update: 
       </Section>
       <StrokeSection title="Border" stroke={layer.stroke} onChange={(stroke, key) => update({ stroke }, key)} />
 
+      <WithSection title="Adjustments">
       <div className="border-b border-line p-3">
         <TextButton
           className="w-full"
@@ -150,9 +194,10 @@ export function ImageProperties({ layer, update }: { layer: ImageLayer; update: 
             update({ adjustments: DEFAULT_ADJUSTMENTS, effects: [] }, 'crop');
           }}
         >
-          Restore original image
+          {paint ? 'Remove crop, adjustments and effects' : 'Restore original image'}
         </TextButton>
       </div>
+      </WithSection>
     </>
   );
 }

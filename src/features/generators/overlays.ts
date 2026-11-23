@@ -247,4 +247,96 @@ export const OVERLAYS: GeneratorDef[] = [
       ctx.fillRect(rand() * (w - bw * 0.6), rand() * h, bw, s * (0.002 + rand() ** 3 * 0.04));
     }
   }),
+  ov('vhs', 'VHS distortion', 'Film', 'screen', 0.9, ['#ffffff', '#ff3b6b', '#35e0ff'], 'vhs tape tracking static retro video', (g) => {
+    const { ctx, w, h, s, rand, colors } = g;
+    black(g);
+    // Fine scan lines, a noisy tracking band near the bottom, and thin colour-fringed tears.
+    ctx.fillStyle = rgba(colors[0], 0.07);
+    for (let y = 0; y < h; y += Math.max(2, s / 260)) ctx.fillRect(0, y, w, Math.max(1, s / 900));
+    const band = h * (0.78 + rand() * 0.12);
+    for (let i = 0; i < 260; i++) {
+      ctx.fillStyle = rgba(colors[0], 0.1 + rand() * 0.55);
+      ctx.fillRect(rand() * w, band + (rand() - 0.5) * s * 0.07, s * (0.005 + rand() * 0.09), s * 0.0025);
+    }
+    for (let i = 0; i < 9; i++) {
+      const y = rand() * h;
+      const x = rand() * w * 0.5;
+      const len = w * (0.25 + rand() * 0.6);
+      const t = s * (0.0015 + rand() * 0.004);
+      ctx.fillStyle = rgba(colors[1], 0.55);
+      ctx.fillRect(x - s * 0.006, y, len, t);
+      ctx.fillStyle = rgba(colors[2], 0.55);
+      ctx.fillRect(x + s * 0.006, y + t, len, t);
+    }
+  }),
+  ov('stars', 'Stars', 'Particles', 'screen', 1, ['#ffffff', '#cfe3ff', '#ffe9b8'], 'stars night sky sparkle twinkle space', (g) => {
+    const { ctx, w, h, u, rand, colors } = g;
+    black(g);
+    softParticles(g, 420, 0.8, 4.5);
+    // A few bright stars with four-point flares.
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 14; i++) {
+      const x = rand() * w;
+      const y = rand() * h;
+      const r = u * (10 + rand() * 26);
+      const color = colors[i % colors.length];
+      radial(g, x, y, r * 0.45, color, 0.9, 0.1);
+      ctx.strokeStyle = rgba(color, 0.75);
+      ctx.lineWidth = Math.max(1, u * 1.2);
+      ctx.beginPath();
+      ctx.moveTo(x - r, y);
+      ctx.lineTo(x + r, y);
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x, y + r);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }),
+  ov('light-shapes', 'Abstract light shapes', 'Light', 'screen', 0.9, ['#ff7a59', '#7b5cff', '#35e0ff'], 'abstract light shapes prism glow geometric', (g) => {
+    const { ctx, w, h, s, rand, colors } = g;
+    black(g);
+    ctx.globalCompositeOperation = 'lighter';
+    // Large soft-edged bars and discs of light, overlapping at angles.
+    for (let i = 0; i < 6; i++) {
+      const color = colors[i % colors.length];
+      ctx.save();
+      ctx.translate(rand() * w, rand() * h);
+      ctx.rotate(rand() * Math.PI);
+      const len = s * (0.5 + rand() * 0.7);
+      const thick = s * (0.05 + rand() * 0.14);
+      const grad = ctx.createLinearGradient(0, -thick, 0, thick);
+      grad.addColorStop(0, rgba(color, 0));
+      grad.addColorStop(0.5, rgba(color, 0.35 + rand() * 0.3));
+      grad.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = grad;
+      ctx.fillRect(-len / 2, -thick, len, thick * 2);
+      ctx.restore();
+    }
+    for (let i = 0; i < 4; i++) radial(g, rand() * w, rand() * h, s * (0.12 + rand() * 0.22), colors[i % colors.length], 0.3 + rand() * 0.25, 0.25);
+    ctx.globalCompositeOperation = 'source-over';
+  }),
+  ov('sunlight', 'Sunlight', 'Light', 'screen', 0.95, ['#fff1c2', '#ffb95e'], 'sunlight sun warm glow corner golden hour', (g) => {
+    const { ctx, w, h, s, colors } = g;
+    black(g);
+    ctx.globalCompositeOperation = 'lighter';
+    // The sun just outside the top-left corner: a hot core, a wide warm wash, a few broad shafts.
+    radial(g, w * 0.05, h * 0.02, Math.hypot(w, h) * 0.95, colors[1], 0.55);
+    radial(g, w * 0.05, h * 0.02, s * 0.6, colors[0], 0.85, 0.08);
+    for (let i = 0; i < 5; i++) {
+      const a = 0.25 + i * 0.26;
+      const reach = Math.hypot(w, h);
+      const spread = 0.035 + (i % 2) * 0.02;
+      const grad = ctx.createLinearGradient(w * 0.05, h * 0.02, w * 0.05 + Math.cos(a) * reach, h * 0.02 + Math.sin(a) * reach);
+      grad.addColorStop(0, rgba(colors[0], 0.28));
+      grad.addColorStop(1, rgba(colors[0], 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(w * 0.05, h * 0.02);
+      ctx.lineTo(w * 0.05 + Math.cos(a - spread) * reach, h * 0.02 + Math.sin(a - spread) * reach);
+      ctx.lineTo(w * 0.05 + Math.cos(a + spread) * reach, h * 0.02 + Math.sin(a + spread) * reach);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }),
 ];

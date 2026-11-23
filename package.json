@@ -7,13 +7,18 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "server": "node server/index.mjs",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "node tests/e2e/milestone1.mjs && node tests/e2e/interactions.mjs && node tests/e2e/library.mjs",
-    "test:visual": "node tests/e2e/visual.mjs"
+    "test:e2e": "node tests/e2e/milestone1.mjs && node tests/e2e/interactions.mjs && node tests/e2e/library.mjs && node tests/e2e/masks.mjs && node tests/e2e/mask-geometry.mjs && node tests/e2e/background-removal.mjs && node tests/e2e/clipping.mjs && node tests/e2e/compositing.mjs && node tests/e2e/text-warp.mjs && node tests/e2e/ui.mjs && node tests/e2e/milestone3.mjs && node tests/e2e/creative-tools.mjs && node tests/e2e/selection.mjs && node tests/e2e/ai.mjs && node tests/e2e/local-tools.mjs && node tests/e2e/editing.mjs && node tests/e2e/home-guide.mjs && node tests/e2e/navigation.mjs",
+    "test:visual": "node tests/e2e/visual.mjs",
+    "setup:ai": "node scripts/setup-ai.mjs",
+    "test:perf": "node tests/e2e/performance.mjs",
+    "guide:demos": "node scripts/build-guide-demos.mjs"
   },
   "dependencies": {
     "konva": "^10.10.0",
     "lucide-react": "^1.77.0",
+    "onnxruntime-web": "^1.31.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-konva": "^19.3.2",

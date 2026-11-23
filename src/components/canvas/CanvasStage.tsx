@@ -2,21 +2,27 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Layer as KLayer, Line, Rect, Shape, Stage, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { useShallow } from 'zustand/react/shallow';
-import { findLayers } from '../../features/document/operations';
+import { findLayer, findLayers } from '../../features/document/operations';
+import { needsPicture } from '../../features/text-warp/renderText';
 import { insertImageFiles, insertLibraryItem, LIBRARY_MIME, type LibraryItem } from '../../features/library/insert';
 import { useEditorStore } from '../../stores/editorStore';
-import { isPaintTool, useUiStore } from '../../stores/uiStore';
+import { isPaintTool, isSelectTool, SAFE_MARGIN, useUiStore } from '../../stores/uiStore';
 import { rectsIntersect, type Point, type Rect as Box } from '../../utils/geometry';
 import { CanvasHud } from './CanvasHud';
+import { CropOverlay } from './CropOverlay';
 import { commitNodeTransforms } from './interaction';
 import { fillProps } from './konvaProps';
-import { LayerNode } from './LayerNode';
+import { LayerList } from './LayerNode';
 import { PaintOverlay } from './PaintOverlay';
+import { PathHandles } from './PathHandles';
+import { SelectionOverlay } from './SelectionOverlay';
 import { stageRefs } from './stageRegistry';
 import { TextEditorOverlay } from './TextEditorOverlay';
+import { WarpHandles } from './WarpHandles';
 
 const ACCENT = '#3ddc97';
-const TEXT_ANCHORS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right'];
+const CORNER_ANCHORS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+const TEXT_ANCHORS = [...CORNER_ANCHORS, 'middle-left', 'middle-right'];
 
 function makeChecker() {
   const c = document.createElement('canvas');
@@ -93,9 +99,7 @@ function DocumentContent() {
             height={doc.height}
             {...background}
           />
-          {doc.layers.map((layer) => (
-            <LayerNode key={layer.id} layer={layer} topLevel />
-          ))}
+          <LayerList layers={doc.layers} topLevel />
         </Group>
       </Group>
     </KLayer>
@@ -112,9 +116,12 @@ function Overlay({ marquee }: { marquee: Box | null }) {
   const layers = useEditorStore((s) => s.doc.layers);
   const selectedIds = useEditorStore((s) => s.selectedIds);
   const { width, height } = useEditorStore(useShallow((s) => ({ width: s.doc.width, height: s.doc.height })));
-  const { zoom, pan, guides, showGrid, viewport, editingTextId, painting } = useUiStore(
+  const { zoom, pan, guides, spacingMarks, composition, showGrid, viewport, editingTextId, painting } = useUiStore(
     useShallow((s) => ({
-      painting: isPaintTool(s.tool),
+      // Brush, eraser and the selection tools own the pointer: layer handles are shown but not active.
+      painting: isPaintTool(s.tool) || isSelectTool(s.tool) || !!s.cropLayerId,
+      spacingMarks: s.spacingMarks,
+      composition: s.composition,
       zoom: s.zoom,
       pan: s.pan,
       guides: s.guides,
@@ -135,12 +142,22 @@ function Overlay({ marquee }: { marquee: Box | null }) {
       .filter((l) => !l.locked && l.visible && l.id !== editingTextId)
       .map((l) => stage.findOne(`#${l.id}`))
       .filter((n): n is Konva.Node => !!n);
-    tr.nodes(nodes);
+    // Re-attaching is costly (listeners, caches). Only do it when the nodes really differ;
+    // on pan, zoom and ordinary edits the frame just needs to follow them.
+    const current = tr.nodes();
+    if (current.length !== nodes.length || current.some((n, i) => n !== nodes[i])) tr.nodes(nodes);
+    else tr.forceUpdate();
     tr.getLayer()?.batchDraw();
   });
 
   const single = selected.length === 1 ? selected[0] : null;
   const step = gridStep(zoom);
+  // Shaped or styled text scales as a whole; its wrap width is set in the properties panel.
+  const anchors = single?.type !== 'text' ? undefined : needsPicture(single) ? CORNER_ANCHORS : TEXT_ANCHORS;
+  const editableText =
+    single?.type === 'text' && single.visible && !single.locked && !painting && single.id !== editingTextId ? single : null;
+  const customWarp = editableText && !editableText.path && editableText.warp?.style === 'custom' ? editableText : null;
+  const curvePath = editableText?.path?.kind === 'curve' ? editableText : null;
 
   return (
     <KLayer listening={!painting}>
@@ -174,6 +191,53 @@ function Overlay({ marquee }: { marquee: Box | null }) {
         stroke="rgba(255,255,255,0.14)"
         strokeWidth={1}
       />
+      {(composition.thirds || composition.center || composition.margins) && (
+        <Shape
+          name="composition-guides"
+          listening={false}
+          sceneFunc={(ctx) => {
+            const c = ctx._context;
+            const X = (x: number) => Math.round(pan.x + x * zoom) + 0.5;
+            const Y = (y: number) => Math.round(pan.y + y * zoom) + 0.5;
+            const line = (x1: number, y1: number, x2: number, y2: number) => {
+              c.moveTo(X(x1), Y(y1));
+              c.lineTo(X(x2), Y(y2));
+            };
+            // Each line is drawn dark then light, so it shows on any artwork.
+            const stroke = (color: string, dash: number[]) => {
+              for (const [style, offset] of [['rgba(0,0,0,0.45)', 1], [color, 0]] as const) {
+                c.save();
+                c.translate(offset, offset);
+                c.strokeStyle = style;
+                c.lineWidth = 1;
+                c.setLineDash(dash);
+                c.stroke();
+                c.restore();
+              }
+            };
+            if (composition.thirds) {
+              c.beginPath();
+              for (const k of [1 / 3, 2 / 3]) {
+                line(width * k, 0, width * k, height);
+                line(0, height * k, width, height * k);
+              }
+              stroke('rgba(255,255,255,0.75)', []);
+            }
+            if (composition.center) {
+              c.beginPath();
+              line(width / 2, 0, width / 2, height);
+              line(0, height / 2, width, height / 2);
+              stroke('rgba(61,220,151,0.9)', [6, 5]);
+            }
+            if (composition.margins) {
+              const m = Math.min(width, height) * SAFE_MARGIN;
+              c.beginPath();
+              c.rect(X(m), Y(m), Math.round((width - 2 * m) * zoom), Math.round((height - 2 * m) * zoom));
+              stroke('rgba(110,168,255,0.95)', [3, 4]);
+            }
+          }}
+        />
+      )}
       {guides.map((g, i) =>
         g.orientation === 'v' ? (
           <Line
@@ -193,14 +257,25 @@ function Overlay({ marquee }: { marquee: Box | null }) {
           />
         ),
       )}
+      {spacingMarks.map((m, i) => {
+        const x1 = pan.x + m.x1 * zoom;
+        const y1 = pan.y + m.y1 * zoom;
+        const x2 = pan.x + m.x2 * zoom;
+        const y2 = pan.y + m.y2 * zoom;
+        const horizontal = Math.abs(y2 - y1) < 0.5;
+        const tick = 5;
+        // A measuring mark: the gap itself with a short stop at each end.
+        const ends = horizontal ? [x1, y1 - tick, x1, y1 + tick, x1, y1, x2, y2, x2, y2 - tick, x2, y2 + tick] : [x1 - tick, y1, x1 + tick, y1, x1, y1, x2, y2, x2 - tick, y2, x2 + tick, y2];
+        return <Line key={`gap-${i}`} name="spacing-mark" listening={false} points={ends} stroke="#ff4d8d" strokeWidth={1} />;
+      })}
       <Transformer
         ref={trRef}
         rotateEnabled={!painting}
         resizeEnabled={!painting}
         flipEnabled={false}
         ignoreStroke
-        keepRatio={single?.type !== 'shape'}
-        enabledAnchors={single?.type === 'text' ? TEXT_ANCHORS : undefined}
+        keepRatio={single?.type !== 'shape' || single.shape === 'icon'}
+        enabledAnchors={anchors}
         rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
         rotationSnapTolerance={4}
         anchorSize={9}
@@ -214,6 +289,8 @@ function Overlay({ marquee }: { marquee: Box | null }) {
         }
         onTransformEnd={commitNodeTransforms}
       />
+      {customWarp && <WarpHandles layer={customWarp} />}
+      {curvePath && <PathHandles layer={curvePath} />}
       {marquee && (
         <Rect
           listening={false}
@@ -262,20 +339,41 @@ export function CanvasStage() {
   // while the paint overlay covers the stage, and a non-passive listener can stop page zoom.
   useEffect(() => {
     const host = hostRef.current!;
+    // A trackpad or a free-spinning wheel sends several events per frame. They are added up and
+    // applied once per frame, so the view is laid out and drawn once instead of once per event.
+    let panX = 0;
+    let panY = 0;
+    let zoomFactor = 1;
+    let anchor: Point | null = null;
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      const ui = useUiStore.getState();
+      if (zoomFactor !== 1) ui.zoomAt(ui.zoom * zoomFactor, anchor ?? undefined);
+      if (panX || panY) {
+        const { pan } = useUiStore.getState();
+        ui.set({ pan: { x: pan.x - panX, y: pan.y - panY } });
+      }
+      panX = panY = 0;
+      zoomFactor = 1;
+    };
     const onWheel = (evt: WheelEvent) => {
       evt.preventDefault();
-      const ui = useUiStore.getState();
       if (evt.ctrlKey || evt.metaKey) {
         const rect = host.getBoundingClientRect();
-        ui.zoomAt(ui.zoom * Math.exp(-evt.deltaY * 0.0022), { x: evt.clientX - rect.left, y: evt.clientY - rect.top });
+        zoomFactor *= Math.exp(-evt.deltaY * 0.0022);
+        anchor = { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
       } else {
-        const dx = evt.shiftKey ? evt.deltaY : evt.deltaX;
-        const dy = evt.shiftKey ? 0 : evt.deltaY;
-        ui.set({ pan: { x: ui.pan.x - dx, y: ui.pan.y - dy } });
+        panX += evt.shiftKey ? evt.deltaY : evt.deltaX;
+        panY += evt.shiftKey ? 0 : evt.deltaY;
       }
+      if (!frame) frame = requestAnimationFrame(apply);
     };
     host.addEventListener('wheel', onWheel, { passive: false });
-    return () => host.removeEventListener('wheel', onWheel);
+    return () => {
+      host.removeEventListener('wheel', onWheel);
+      cancelAnimationFrame(frame);
+    };
   }, []);
 
   // Frame the artboard whenever a different project is opened or the canvas is resized.
@@ -374,7 +472,7 @@ export function CanvasStage() {
 
   const onDblClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     const target = e.target;
-    if (target.hasName('layer') && target.getClassName() === 'Text') {
+    if (target.hasName('layer') && findLayer(useEditorStore.getState().doc.layers, target.id())?.type === 'text') {
       useEditorStore.getState().select([target.id()]);
       useUiStore.getState().set({ editingTextId: target.id() });
     }
@@ -418,6 +516,8 @@ export function CanvasStage() {
         </Stage>
       )}
       <TextEditorOverlay />
+      <SelectionOverlay onPan={startPan} />
+      <CropOverlay onPan={startPan} />
       <PaintOverlay onPan={startPan} />
       <CanvasHud />
     </div>

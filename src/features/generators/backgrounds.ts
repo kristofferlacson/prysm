@@ -117,6 +117,117 @@ export const BACKGROUNDS: GeneratorDef[] = [
     }
     ctx.fill();
   }),
+  bg('chevron', 'Chevron', 'Pattern', ['#f4f1de', '#3d405b'], 'chevron zigzag herringbone pattern', (g) => {
+    const { ctx, w, h, s } = g;
+    fill(g, g.colors[0]);
+    const pitch = s / 9;
+    ctx.strokeStyle = g.colors[1];
+    ctx.lineWidth = pitch * 0.32;
+    ctx.lineJoin = 'miter';
+    ctx.beginPath();
+    for (let y = -pitch; y < h + pitch * 2; y += pitch * 0.8) {
+      for (let x = -pitch, i = 0; x < w + pitch; x += pitch / 2, i++) {
+        const py = y + (i % 2 ? -pitch * 0.25 : pitch * 0.25);
+        if (i === 0) ctx.moveTo(x, py);
+        else ctx.lineTo(x, py);
+      }
+    }
+    ctx.stroke();
+  }),
+  bg('graph-grid', 'Grid', 'Pattern', ['#0f172a', '#334155', '#64748b'], 'grid graph paper lines blueprint pattern', (g) => {
+    const { ctx, w, h, s } = g;
+    fill(g, g.colors[0]);
+    const cell = s / 16;
+    const lines = (step: number, color: string, width: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      for (let x = (w / 2) % step; x < w; x += step) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
+      for (let y = (h / 2) % step; y < h; y += step) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+      }
+      ctx.stroke();
+    };
+    lines(cell, g.colors[1], Math.max(1, s / 900));
+    lines(cell * 4, g.colors[2], Math.max(1.5, s / 500));
+  }),
+  bg('checker', 'Checkerboard', 'Pattern', ['#fefae0', '#bc6c25'], 'checker checkerboard squares racing pattern', (g) => {
+    const { ctx, w, h, s } = g;
+    fill(g, g.colors[0]);
+    ctx.fillStyle = g.colors[1];
+    const cell = s / 10;
+    for (let row = 0, y = 0; y < h; y += cell, row++) {
+      for (let col = 0, x = 0; x < w; x += cell, col++) if ((row + col) % 2) ctx.fillRect(x, y, cell + 0.5, cell + 0.5);
+    }
+  }),
+  bg('wave-lines', 'Wave lines', 'Pattern', ['#003049', '#669bbc'], 'waves lines flowing water pattern', (g) => {
+    const { ctx, w, h, s } = g;
+    fill(g, g.colors[0]);
+    ctx.strokeStyle = g.colors[1];
+    ctx.lineWidth = s / 160;
+    const pitch = s / 18;
+    const length = s / 3.2;
+    ctx.beginPath();
+    for (let y = -pitch; y < h + pitch * 2; y += pitch) {
+      ctx.moveTo(-10, y);
+      for (let x = 0; x <= w + 10; x += s / 80) ctx.lineTo(x, y + Math.sin((x / length) * TAU + (y / pitch) * 0.35) * pitch * 0.55);
+    }
+    ctx.stroke();
+  }),
+  bg('memphis', 'Memphis', 'Pattern', ['#fff8e7', '#ef476f', '#118ab2', '#ffd166', '#073b4c'], 'memphis confetti 80s shapes squiggle pattern', (g) => {
+    const { ctx, w, h, s, rand } = g;
+    fill(g, g.colors[0]);
+    const cell = s / 6;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = s / 110;
+    for (let y = cell / 2; y < h + cell / 2; y += cell) {
+      for (let x = cell / 2; x < w + cell / 2; x += cell) {
+        const cx = x + (rand() - 0.5) * cell * 0.4;
+        const cy = y + (rand() - 0.5) * cell * 0.4;
+        const color = g.colors[1 + Math.floor(rand() * 4)];
+        const r = cell * (0.14 + rand() * 0.12);
+        const kind = rand();
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rand() * TAU);
+        ctx.fillStyle = ctx.strokeStyle = color;
+        ctx.beginPath();
+        if (kind < 0.25) {
+          ctx.arc(0, 0, r, 0, TAU);
+          ctx.fill();
+        } else if (kind < 0.5) {
+          ctx.moveTo(0, -r * 1.2);
+          ctx.lineTo(r * 1.1, r * 0.8);
+          ctx.lineTo(-r * 1.1, r * 0.8);
+          ctx.closePath();
+          ctx.fill();
+        } else if (kind < 0.75) {
+          for (let i = 0; i <= 4; i++) ctx.lineTo((i - 2) * r * 0.6, i % 2 ? -r * 0.45 : r * 0.45);
+          ctx.stroke();
+        } else {
+          ctx.arc(0, 0, r, 0, TAU);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }),
+  bg('rings', 'Concentric rings', 'Pattern', ['#2b2d42', '#ef233c', '#edf2f4'], 'rings concentric circles target retro pattern', (g) => {
+    const { ctx, w, h } = g;
+    fill(g, g.colors[0]);
+    const reach = Math.hypot(w, h) * 0.62;
+    const count = 14;
+    for (let i = count; i >= 1; i--) {
+      ctx.fillStyle = g.colors[i % 3];
+      ctx.beginPath();
+      ctx.arc(w * 0.5, h * 0.58, (reach * i) / count, 0, TAU);
+      ctx.fill();
+    }
+  }),
   bg('stripes', 'Diagonal stripes', 'Pattern', ['#1d3557', '#457b9d'], 'stripes diagonal lines pattern', (g) => {
     const { ctx, w, h, s } = g;
     fill(g, g.colors[0]);

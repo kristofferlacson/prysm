@@ -115,8 +115,9 @@ await section('Every effect applies to a real layer', async () => {
     if (px.every((p, i) => rgbNear(p, base[i], 1))) unchanged.push(type);
     await page.locator(`[data-effect="${type}"]`).click();
   }
-  // Blur/sharpen/wave/glow sample flat triangle interiors and may legitimately leave these points alone.
-  const mustChange = unchanged.filter((e) => !['blur', 'sharpen', 'wave', 'glow', 'rgb-split', 'pixelate', 'glitch'].includes(e));
+  // Effects that move or smooth pixels sample flat triangle interiors here and may legitimately leave these points alone.
+  const spatial = ['blur', 'sharpen', 'wave', 'glow', 'rgb-split', 'pixelate', 'glitch', 'ripple', 'bulge', 'pinch', 'swirl', 'oil-paint'];
+  const mustChange = unchanged.filter((e) => !spatial.includes(e));
   t.check(`${types.length} effects render without errors`, errors.length === 0, errors.slice(0, 3).join(' | '));
   t.check('colour and tone effects change the exported pixels', mustChange.length === 0, `unchanged: ${unchanged.join(', ') || 'none'}`);
   const after = await exportPixels([[300, 300], [540, 540]]);

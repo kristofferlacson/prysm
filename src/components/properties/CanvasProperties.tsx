@@ -2,15 +2,17 @@ import { useShallow } from 'zustand/react/shallow';
 import { CANVAS_PRESETS } from '../../features/projects/presets';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
-import { NumberInput, Row, Section, Select, Switch } from '../ui/controls';
+import { NumberInput, Section, Select } from '../ui/controls';
 import { FillEditor } from './FillEditor';
 
-/** Shown when nothing is selected: document size, background and view options. */
+/**
+ * Shown when nothing is selected: the properties of the design itself (size and background).
+ * How the editor looks (rulers, grid, interface size) lives in the View menu in the top bar.
+ */
 export function CanvasProperties() {
   const { width, height, background } = useEditorStore(
     useShallow((s) => ({ width: s.doc.width, height: s.doc.height, background: s.doc.background })),
   );
-  const { showGrid, showRulers } = useUiStore(useShallow((s) => ({ showGrid: s.showGrid, showRulers: s.showRulers })));
   const setDocument = useEditorStore.getState().setDocument;
   const preset = CANVAS_PRESETS.find((p) => p.width === width && p.height === height);
 
@@ -21,7 +23,7 @@ export function CanvasProperties() {
 
   return (
     <div data-testid="canvas-properties">
-      <div className="flex h-9 items-center border-b border-line px-3 font-semibold">Canvas</div>
+      <div className="flex h-11 items-center border-b border-line px-4 text-[13px] font-semibold">Canvas</div>
       <Section title="Size">
         <div className="grid grid-cols-2 gap-1.5">
           <NumberInput prefix="W" label="Canvas width" value={width} min={16} max={12000} onChange={(w) => resize(w, height)} />
@@ -45,14 +47,6 @@ export function CanvasProperties() {
           noneLabel="Clear"
           onChange={(fill) => setDocument({ background: fill }, { coalesce: 'canvas-background' })}
         />
-      </Section>
-      <Section title="View">
-        <Row label="Rulers">
-          <Switch label="Show rulers" checked={showRulers} onChange={(v) => useUiStore.getState().set({ showRulers: v })} />
-        </Row>
-        <Row label="Grid">
-          <Switch label="Show grid" checked={showGrid} onChange={(v) => useUiStore.getState().set({ showGrid: v })} />
-        </Row>
       </Section>
     </div>
   );

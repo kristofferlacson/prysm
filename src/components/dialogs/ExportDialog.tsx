@@ -5,7 +5,7 @@ import { useEditorStore } from '../../stores/editorStore';
 import { NotImplemented, NumberInput, Row, Segmented, SliderRow, Switch, TextButton } from '../ui/controls';
 import { Modal } from './Modal';
 
-const EXTENSION: Record<ExportFormat, string> = { png: 'png', jpeg: 'jpg', webp: 'webp' };
+const EXTENSION: Record<ExportFormat, string> = { png: 'png', jpeg: 'jpg', webp: 'webp', pdf: 'pdf' };
 
 export function ExportDialog({ onClose }: { onClose: () => void }) {
   const doc = useEditorStore((s) => s.doc);
@@ -46,6 +46,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               { value: 'png', label: 'PNG' },
               { value: 'jpeg', label: 'JPG' },
               { value: 'webp', label: 'WebP' },
+              { value: 'pdf', label: 'PDF' },
             ]}
             onChange={setFormat}
           />
@@ -71,7 +72,12 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         </Row>
         {scale > limit && <p className="text-faint">Limited to {outW} × {outH} px, the largest size this browser can render reliably.</p>}
         {format !== 'png' && <SliderRow label="Quality" value={quality} min={10} max={100} onChange={setQuality} />}
-        {format !== 'jpeg' && (
+        {format === 'pdf' && (
+          <p className="leading-relaxed text-faint">
+            One page, the size of the canvas at 96 px per inch, holding the design as an image (scale 2× = 192 dpi). Good for printing and sharing; text in the PDF is not selectable.
+          </p>
+        )}
+        {format !== 'jpeg' && format !== 'pdf' && (
           <Row label="Transparent">
             <Switch label="Transparent background" checked={transparent} onChange={setTransparent} />
             <span className="text-faint">Leave out the canvas background</span>

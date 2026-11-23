@@ -4,8 +4,10 @@ import { sourceSize, type RasterSource } from '../image-editing/pipeline';
 import { getAssetImage, importImageBlob } from '../../services/assets';
 import { getRaster, loadRaster, putRaster } from '../../services/rasters';
 import { useEditorStore, type CommitOptions } from '../../stores/editorStore';
-import { useUiStore } from '../../stores/uiStore';
+import { revealSection, useUiStore } from '../../stores/uiStore';
 import type { ImageLayer, ImageSource, LayerMask } from '../../types/document';
+import { NO_CROP } from '../document/factory';
+import { featherRadius, maskResolution } from './maskSpace';
 import { uid } from '../../utils/misc';
 
 /**
@@ -13,8 +15,6 @@ import { uid } from '../../utils/misc';
  * raster store and points the document at it, so every operation is a normal undoable document change
  * and the layer's own pixels are never modified.
  */
-
-export const MASK_MAX_DIM = 2048;
 
 export function getImageLayer(id: string): ImageLayer | null {
   const layer = findLayer(useEditorStore.getState().doc.layers, id);
@@ -34,12 +34,10 @@ export function sourceDimensions(source: ImageSource) {
   return img ? sourceSize(img) : null;
 }
 
-/** Mask resolution for a source: the source's own size, capped so very large photos stay light. */
+/** Sampling density for a new mask on this source (null while the source is still loading). */
 export function maskSize(source: ImageSource) {
   const dims = sourceDimensions(source);
-  if (!dims) return null;
-  const k = Math.min(1, MASK_MAX_DIM / Math.max(dims.width, dims.height));
-  return { width: Math.max(1, Math.round(dims.width * k)), height: Math.max(1, Math.round(dims.height * k)) };
+  return dims ? maskResolution(dims.width, dims.height) : null;
 }
 
 export function blankCanvas(width: number, height: number, fill?: string) {
@@ -93,11 +91,14 @@ export function addMask(layerId: string, reveal = true, opts?: CommitOptions): L
   return mask;
 }
 
-/** Replaces the layer's mask with the given coverage bitmap (used by background removal). */
+/**
+ * Replaces the layer's mask with the given coverage bitmap (used by background removal). A mask
+ * that is being replaced passes on its feather, so editing a cut-out again keeps its soft edge.
+ */
 export function setMaskBitmap(layerId: string, canvas: HTMLCanvasElement, origin: LayerMask['origin']) {
   const layer = getImageLayer(layerId);
   if (!layer) return;
-  setMasks(layerId, [makeMask(canvas, origin)]);
+  setMasks(layerId, [{ ...makeMask(canvas, origin), feather: layer.masks[0]?.feather ?? 0 }]);
 }
 
 export function removeMask(layerId: string) {
@@ -132,6 +133,44 @@ async function withMaskBitmap(layerId: string, edit: (current: HTMLCanvasElement
   const latest = getImageLayer(layerId);
   if (latest?.masks[0]?.id !== mask.id) return;
   patchMask(latest, { rasterId: putRaster(next), width: next.width, height: next.height });
+}
+
+/**
+ * Narrows a layer's mask with a coverage bitmap: 'intersect' keeps only what the bitmap covers,
+ * 'subtract' hides what it covers. A layer without a mask gets one first, in the same undo step.
+ * `build` receives the mask's pixel size and returns the coverage in source space.
+ */
+export async function combineMaskWith(
+  layerId: string,
+  op: 'intersect' | 'subtract',
+  build: (width: number, height: number) => HTMLCanvasElement | null,
+): Promise<boolean> {
+  const layer = getImageLayer(layerId);
+  if (!layer) return false;
+  const existing = layer.masks[0];
+  const size = existing ? null : maskSize(layer.source);
+  const current = existing ? await loadRaster(existing.rasterId) : size ? blankCanvas(size.width, size.height, '#ffffff') : null;
+  if (!current) {
+    useUiStore.getState().notify(existing ? 'The mask data could not be loaded.' : 'The image is still loading. Try again in a moment.');
+    return false;
+  }
+  const shape = build(current.width, current.height);
+  if (!shape) return false;
+  const out = blankCanvas(current.width, current.height);
+  const ctx = out.getContext('2d')!;
+  ctx.drawImage(current, 0, 0);
+  ctx.globalCompositeOperation = op === 'intersect' ? 'destination-in' : 'destination-out';
+  ctx.drawImage(shape, 0, 0, out.width, out.height);
+  const latest = getImageLayer(layerId);
+  if (!latest) return false;
+  if (existing) {
+    if (latest.masks[0]?.id !== existing.id) return false;
+    patchMask(latest, { rasterId: putRaster(out), width: out.width, height: out.height });
+  } else {
+    if (latest.masks.length) return false;
+    setMasks(layerId, [makeMask(out)]);
+  }
+  return true;
 }
 
 /** Swaps revealed and concealed areas. */
@@ -171,7 +210,8 @@ export async function applyMask(layerId: string) {
   ctx.drawImage(source, 0, 0, width, height);
   ctx.globalCompositeOperation = 'destination-in';
   ctx.imageSmoothingQuality = 'high';
-  if (mask.feather > 0 && typeof ctx.filter === 'string') ctx.filter = `blur(${mask.feather * Math.max(width, height)}px)`;
+  const radius = featherRadius(mask.feather, NO_CROP, width, height);
+  if (radius > 0 && typeof ctx.filter === 'string') ctx.filter = `blur(${radius}px)`;
   ctx.drawImage(coverage, 0, 0, width, height);
   const blob = await new Promise<Blob | null>((resolve) => baked.toBlob(resolve, 'image/png'));
   if (!blob) {
@@ -188,5 +228,6 @@ export async function applyMask(layerId: string) {
 /** Switches the edit target between a layer's pixels and its mask. */
 export function setMaskEditing(layerId: string | null) {
   const ui = useUiStore.getState();
-  ui.set({ maskEditLayerId: layerId, maskViewLayerId: layerId && ui.maskViewLayerId === layerId ? layerId : null });
+  if (layerId && ui.maskEditLayerId !== layerId) revealSection('Mask');
+  ui.set({ maskEditLayerId: layerId, maskViewLayerId: layerId && ui.maskViewLayerId === layerId ? layerId : null, ...(layerId ? { fadePaintLayerId: null } : {}) });
 }

@@ -34,7 +34,9 @@ export function brushTip(color: string, hardness: number): HTMLCanvasElement {
 
 /** Distance between dabs, in the same units as the brush size. Soft brushes need denser dabs to look smooth. */
 export function dabSpacing(size: number, hardness: number) {
-  return Math.max(0.5, size * (0.06 + 0.1 * hardness));
+  // At 12% of the diameter the scallops a hard round tip leaves along the stroke's sides are
+  // about a third of a pixel deep on an 80 px brush: below what is visible.
+  return Math.max(0.5, size * (0.06 + 0.06 * hardness));
 }
 
 /** Per-dab alpha so that overlapping dabs build up to roughly `flow` in a single pass. */
@@ -80,6 +82,12 @@ export class StrokePath {
     const out: Point[] = [];
     if (!this.last || !this.pen) return out;
     this.curveTo(this.last, raw, out);
+    // Dabs are placed at fixed intervals, so the last one usually falls short of the release
+    // point by part of an interval. Close the gap: a stroke ends exactly where the pointer did.
+    if (this.carry > this.spacing * 0.05) {
+      out.push({ ...raw });
+      this.carry = 0;
+    }
     return out;
   }
 

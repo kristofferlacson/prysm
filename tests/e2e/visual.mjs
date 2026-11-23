@@ -14,6 +14,7 @@ await page.keyboard.press('Escape');
 await shot('template-poster');
 
 await tab('textures');
+await page.locator('[data-generator="texture/abstract-pattern"]').scrollIntoViewIfNeeded();
 await page.waitForSelector('[data-generator="texture/abstract-pattern"] img');
 await page.waitForTimeout(500);
 await shot('textures-panel');
@@ -28,6 +29,7 @@ await shot('overlays-panel');
 
 await tab('templates');
 await page.locator('[data-template="album-cover"]').click();
+await page.locator('[data-testid="confirm-dialog"]').getByRole('button', { name: 'Replace design' }).click();
 await page.waitForTimeout(2500);
 const text = (await state(page)).doc.layers.find((l) => l.type === 'text');
 await page.locator(`[data-layer-id="${text.id}"]`).click();

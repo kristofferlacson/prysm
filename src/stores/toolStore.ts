@@ -19,7 +19,8 @@ export interface BrushSettings {
  */
 export interface PaintSession {
   layerId: string;
-  target: 'mask' | 'content';
+  /** 'fade' = the brush strokes of the layer's fade. */
+  target: 'mask' | 'content' | 'fade';
   /** Set when target is 'mask'. */
   maskId: string | null;
   canvas: HTMLCanvasElement;
